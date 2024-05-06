@@ -1,0 +1,21 @@
+#correlation heat map
+
+library(corrplot) 
+library(psych)    
+inputFile <- "input.txt"  
+rt <- read.table(inputFile, sep = "\t", header = TRUE, row.names = 1) 
+rt_matrix <- as.matrix(rt)
+
+M_spearman <- cor(rt_matrix, method = "spearman")
+
+pdf(file = "corpot_spearman.pdf", width = 8, height = 8)
+corrplot(M_spearman,
+         order = "original",
+         method = "color",
+         number.cex = 0.7,
+         addCoef.col = "black",
+         diag = TRUE,
+         tl.col = "black",
+         col = colorRampPalette(c("blue", "white", "red"))(50))
+dev.off()
+

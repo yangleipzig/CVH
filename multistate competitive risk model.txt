@@ -1,0 +1,252 @@
+Sys.setlocale(category = 'LC_ALL', locale = 'English_United States.1252'); 
+.libPaths(file.path(R.home(),'library')); 
+library(doBy); 
+options(timeout=600); 
+library(plotrix); 
+library(stringi); 
+library(stringr); 
+library(survival); 
+library(rms); 
+library(nnet); 
+library(car); 
+library(mgcv); 
+pdfwd<-6; pdfht<-6; 
+load('D:/EmpowerRCH/Analysis/CVH/CVH.Rdata'); 
+if (length(which(ls()=='EmpowerStatsR'))==0) EmpowerStatsR<-get(ls()[1]); 
+names(EmpowerStatsR)<-toupper(names(EmpowerStatsR)); 
+originalVNAME<-names(EmpowerStatsR); 
+ofname<-'0319CVH_7_tbl'; 
+vname<-c(NA,'AGE','SEX','SEX.0','SEX.1','RACE','RACE.0','RACE.1','TOWNSEND_DEPRIVATION_INDEX','QUALIFICATIONS','QUALIFICATIONS.1','QUALIFICATIONS.2','QUALIFICATIONS.3','QUALIFICATIONS.4','QUALIFICATIONS.5','QUALIFICATIONS.6','AVERAGE_TOTAL_HOUSEHOLD_INCOME','AVERAGE_TOTAL_HOUSEHOLD_INCOME.1','AVERAGE_TOTAL_HOUSEHOLD_INCOME.2','AVERAGE_TOTAL_HOUSEHOLD_INCOME.3','AVERAGE_TOTAL_HOUSEHOLD_INCOME.4','AVERAGE_TOTAL_HOUSEHOLD_INCOME.5','AVERAGE_TOTAL_HOUSEHOLD_INCOME.6','ALCOHOL_STATUS','ALCOHOL_STATUS.1','ALCOHOL_STATUS.2','ALCOHOL_STATUS.3','ALCOHOL_STATUS.4','CVH','DEATH','DEATH.0','DEATH.1','DEATH_TIME','ESOPHAGEAL','ESOPHAGEAL.0','ESOPHAGEAL.1','ESOPHAGEAL_TIME')[-1]; 
+vlabel<-c(NA,'AGE','SEX','  0','  1','RACE','  0','  1','TOWNSEND_DEPRIVATION_INDEX','QUALIFICATIONS','  1','  2','  3','  4','  5','  6','AVERAGE_TOTAL_HOUSEHOLD_INCOME','  1','  2','  3','  4','  5','  6','ALCOHOL_STATUS','  1','  2','  3','  4','CVH','DEATH','  0','  1','DEATH_TIME','ESOPHAGEAL','  0','  1','ESOPHAGEAL_TIME')[-1]; 
+varused4this <- c('AGE','SEX','RACE','TOWNSEND_DEPRIVATION_INDEX','QUALIFICATIONS','AVERAGE_TOTAL_HOUSEHOLD_INCOME','ALCOHOL_STATUS','CVH','DEATH','DEATH_TIME','ESOPHAGEAL','ESOPHAGEAL_TIME'); 
+pkgs<-c('colorspace','mstate'); 
+for (g in pkgs) {  
+if (!(g %in% rownames(installed.packages()))) install.packages(g,repos='https://cloud.r-project.org'); 
+}
+library(colorspace); 
+library(mstate); 
+WD <- EmpowerStatsR; rm(EmpowerStatsR); gc(); 
+title<-'Competition and multi-state risk model'; 
+WD<-subset(WD, ((!is.na(SEX) & (SEX == 1)))); 
+wd.subset<-paste("Use subset of data: (!is.na(SEX) & (SEX == 1))"); 
+weights.var<- NA; 
+xvname<-c('ESOPHAGEAL','DEATH'); 
+xlv<-c(2,2); 
+svname<-c('CVH','AGE','RACE','TOWNSEND_DEPRIVATION_INDEX','QUALIFICATIONS','AVERAGE_TOTAL_HOUSEHOLD_INCOME','ALCOHOL_STATUS'); 
+slv<-c(0,0,2,0,6,6,4); 
+avname<-c('ESOPHAGEAL_TIME','DEATH_TIME'); 
+alv<-c(0,0); 
+bvar<- NA; 
+dec<-4; 
+##R package## colorspace mstate ##R package##;
+pvformat<-function(p,dec) {
+  pp <- sprintf(paste("%.",dec,"f",sep=""),as.numeric(p))
+  if (is.matrix(p)) {pp<-matrix(pp, nrow=nrow(p)); colnames(pp)<-colnames(p);rownames(pp)<-rownames(p);}
+  lw <- paste("<",substr("0.00000000000",1,dec+1),"1",sep="");
+  pp[as.numeric(p)<(1/10^dec)]<-lw
+  return(pp)
+}
+numfmt<-function(p,dec) {
+  if (is.list(p)) p<-as.matrix(p)
+  pp <- sprintf(paste("%.",dec,"f",sep=""),as.numeric(p))
+  if (is.matrix(p)) {pp<-matrix(pp, nrow=nrow(p));colnames(pp)<-colnames(p);rownames(pp)<-rownames(p);}
+  pp[as.numeric(p)>10000000]<- "inf."
+  pp[is.na(p) | gsub(" ","",p)==""]<- ""
+  pp[p=="-Inf"]<-"-Inf"
+  pp[p=="Inf"]<-"Inf"
+  return(pp)
+}
+mat2htmltable<-function(mat, rc=0) {
+   if (rc == 1) mat <- cbind(rownames(mat), mat)
+  if (rc == 2) mat <- rbind(colnames(mat), mat)
+  if (rc == 3) mat <- cbind(c("",rownames(mat)), rbind(colnames(mat),mat))
+  t1<- apply(mat,1,function(z) paste(z,collapse="</td><td>"))
+  t2<- paste("<tr><td>",t1,"</td></tr>")
+  return(paste(t2,collapse=" "))
+}
+getTranList <- function(time, status) {
+  n <- nrow(time)
+  s <- ncol(time) + 1  
+  tm <- matrix(NA, ncol = s, nrow = s)
+  for (i in (1:n)) {
+    idx.e <- which(status[i,] == 1)
+    if (length(idx.e) > 0) {
+      val.t <- time[i, idx.e]
+      uni.t <- sort(unique(as.numeric(val.t)))
+      p <- c(1, idx.e[sapply(uni.t, function(z) max(which(val.t==z)))]+1)
+      for (j in (2:length(p))) tm[p[j-1],p[j]] <- 1
+    } 
+  }
+  ts <- list()
+  for (i in (1:s)) ts[[i]] <- which(tm[i,]==1)
+  return(ts)
+}
+
+vlabelN<-(substr(vlabel,1,1)==" ");
+vlabelZ<-vlabel[vlabelN];vlabelV<-vlabel[!vlabelN]
+vnameV<-vname[!vlabelN];vnameZ<-vname[vlabelN]
+if (!is.na(weights.var)) {weights<-WD[,weights.var];} else {weights<-1;}
+WD<-cbind(WD,weights);
+allvname<-c(avname,xvname,svname,bvar,"weights"); 
+allvname<-allvname[!is.na(allvname)]
+WD<-WD[,allvname];
+WD <- WD[apply(is.na(WD[,c(avname, xvname)]),1,sum)==0,]
+if (!is.na(bvar)) {
+  bvb<-vlabelV[match(bvar,vnameV)]; if (is.na(bvb)) bvb<-bvar; 
+  b.lv<-levels(factor(WD[,bvar]));
+  b.lb<-vlabelZ[match(paste(bvar,b.lv,sep="."),vnameZ)]
+  b.lb[is.na(b.lb)]<-b.lv[is.na(b.lb)]
+  nbg<-length(b.lv)
+} else {nbg<-1;}
+adj.name <- svname
+adj.catg <- (slv > 2)
+adj.vlst <- list()
+for (i in 1:length(adj.name)) {
+  if (adj.catg[i]) {
+     tmp <- sort(levels(factor(WD[,adj.name[i]])))
+     if (tmp[1] != "0") WD[WD[,adj.name[i]] == tmp[1], adj.name[i]] <- 0
+     adj.vlst[[i]] <- tmp[-1]
+  } else {adj.vlst[[i]] <- NA;}
+}
+if (length(xvname)==1) {
+   cmprsk <- 1
+  st.lv <- sort(levels(factor(WD[,xvname])))
+  tmps <- NULL; tmpt <- NULL; 
+  for (i in 1:length(st.lv)) {
+    tmps <- cbind(tmps,(WD[,xvname]== st.lv[i])*1)
+    tmpt <- cbind(tmpt, WD[,avname])   
+  }  
+  colnames(tmps) <- paste(xvname,st.lv,sep=".")
+  colnames(tmpt) <- paste(avname,st.lv,sep=".")
+  WD <- cbind(WD, tmps, tmpt)
+  time.name = colnames(tmpt)
+  status.name = colnames(tmps)
+  if (st.lv[1] == 0) {
+    time.name = time.name[-1]
+    status.name = status.name[-1]
+  }
+  timeb  <-trimws(vlabelV[vnameV==avname]); 
+  statusb<-trimws(vlabelV[vnameV==xvname]); 
+  sttab <- cbind(c("Events", "Time"), c(xvname,avname))
+  if (timeb != avname || statusb != xvname) sttab <- cbind(sttab, c(statusb, timeb))
+} else {
+   cmprsk <- 0
+   time.name <- avname
+   status.name <- xvname
+   timeb<-vlabelV[match(time.name,vnameV)]; timeb[is.na(timeb)]<-time.name[is.na(timeb)]
+   statusb<-vlabelV[match(status.name,vnameV)]; statusb[is.na(statusb)]<-status.name[is.na(statusb)]
+   sttmp1 <- status.name; sttmp2 <- "Status var."
+   if (sum(statusb != status.name)>0) {sttmp1<-cbind(sttmp1,statusb); sttmp2<-c(sttmp2,"Status note");}
+   sttmp1 <- cbind(sttmp1, time.name); sttmp2 <- c(sttmp2,"Time var.")
+   if (sum(timeb != time.name)>0) {sttmp1<-cbind(sttmp1,timeb); sttmp2<-c(sttmp2,"Time note");}
+   sttab <- rbind(sttmp2,sttmp1)
+   rm(sttmp1,sttmp2)
+}
+adjb<-vlabelV[match(adj.name,vnameV)]; adjb[is.na(adjb)]<-adj.name[is.na(adjb)]
+stateName<- c("Treatment", status.name)
+keep.name <- names(WD)[is.na(match(names(WD),c(time.name,status.name)))]
+nstatus <- length(stateName)
+tranList <- getTranList(WD[,time.name],WD[,status.name])
+tranMat <- transMat(x = tranList, names = stateName) 
+tranNum <- max(tranMat,na.rm=TRUE)
+tranFrom<- stateName[match(1:tranNum,tranMat) %% nstatus]
+tranTo  <- stateName[match(1:tranNum,tranMat) %/% nstatus + 1]
+MSWD <- msprep(data=WD, trans=tranMat, time= c(NA, time.name), status = c(NA, status.name), keep = keep.name)
+MSWD <- MSWD[MSWD$Tstop > MSWD$Tstart,]
+MSWD <- expand.covs(MSWD, adj.name, longnames = FALSE)
+covMx <- sapply(adj.name, function(z) paste(z,(1:tranNum),sep="."))
+covMx[,adj.catg] <- paste("factor(", covMx[,adj.catg],")",sep="")
+fml0 <- "Surv(Tstart, Tstop, status) ~ strata(trans)"
+fmlt <- paste(c(fml0,as.vector(covMx)),collapse="+")
+coeMx <- NULL
+coeNm <- NULL
+for (i in 1:length(adj.name)) {
+  if (is.na(adj.vlst[[i]][1])) {
+    coeMx <- cbind(coeMx, covMx[,i])
+    coeNm <- c(coeNm, adj.name[i])
+  } else {
+    for (j in 1:length(adj.vlst[[i]])) {
+      coeMx <- cbind(coeMx, paste(covMx[,i],adj.vlst[[i]][j],sep=""))
+      coeNm <- c(coeNm, paste(adj.name[i],adj.vlst[[i]][j],sep="="))
+    }
+  }
+}
+statecols <- heat_hcl(nstatus, c = c(80, 30), l = c(30, 90), power = c(1/5, 2))[(nstatus:1)] 
+ord <- c((2:nstatus),1)
+wt <- NULL;
+sink(paste(ofname,".txt",sep=""))
+cat("\nCompeting risk and Multi-State models (using mstate package)");
+cat(paste("\nStates: ",paste(statusb,collapse=", ")))
+cat(paste("\nTime: ",paste(timeb, collapse=", "),"\n\n"))
+for (b in 1:nbg) {
+  if (nbg>1) {
+    WD1<-MSWD[MSWD[,bvar]==b.lv[b],];
+    wt<-c(wt,paste("</br></br>For subset:", bvb, "==", b.lb[b]));
+    cat(paste("\nFor subset:", bvb, "==", b.lb[b], "\n\n"));
+    ofname1 <- paste(ofname,b.lv[b],sep="_");
+  } else {
+    WD1<-MSWD; ofname1 <- ofname;
+  }
+  tranFreq <- events(WD1)
+  wt <-c(wt,"</br>Transition frequencies (not weighted)")
+  wt <-c(wt,"</br><table border=3>", mat2htmltable(tranFreq$Frequencies, 3), "</table></br>")
+  wt <-c(wt,"</br>Transition proportions (not weighted)")
+  wt <-c(wt,"</br><table border=3>", mat2htmltable(round(tranFreq$Proportions,5), 3), "</table></br>") 
+  print(tranFreq)
+  if (is.na(weights.var)) {
+    c0 <- coxph(formula(fml0), data=WD1, method = "breslow")
+    ct <- coxph(formula(fmlt), data=WD1, method = "breslow")
+    msf0 <- msfit(object = c0, vartype = "aalen", trans = tranMat)
+    png(paste(ofname1,"_cumhz.png",sep=""))
+    plot(msf0, las = 1, lty = (1:tranNum), xlab = "Time since treatment")
+    dev.off()
+    pt0 <- probtrans(msf0, predt = 0, method = "aalen")
+    pred.forward <- NULL
+    for (i in 1:(nstatus-1)) pred.forward <- rbind(pred.forward, cbind(sfrom=i,pt0[[i]]))
+    wt <- c(wt, "</br>Transition probabilities at each time point were saved to: _prob_from.xls</br>")
+    write.table(pred.forward,file=paste(ofname1,"prob_from.xls",sep="_"),row.names=FALSE,col.names=TRUE,sep="\t",append=FALSE,quote=FALSE)
+    png(paste(ofname1,"_prob.png",sep=""))
+    plot(pt0, ord = ord, xlab = "Time since treatment", las = 1, type = "filled", col = statecols[ord])
+    dev.off()
+	ct.coe <- summary(ct)$coefficients
+	ct.bb = ct.coe[,1];	ct.se = ct.coe[,3];	ct.pp = ct.coe[,5];
+  } else {
+    c0 <- coxph(formula(fml0), data=WD1, weights=WD1$weights, method = "breslow")
+    ct <- coxph(formula(fmlt), data=WD1, weights=WD1$weights, method = "breslow", robust=TRUE)
+	ct.coe <- summary(ct)$coefficients
+	ct.bb = ct.coe[,1];	ct.se = ct.coe[,4];	ct.pp = ct.coe[,6];
+  }
+  print(summary(c0))
+  print(summary(ct))
+  ct.coett <- paste(numfmt(ct.bb,4), " (", numfmt(ct.se,4), ") ", pvformat(ct.pp,4), sep="")
+  ct.coenm <- rownames(ct.coe)
+  ct.beta <- matrix(ct.coett[match(coeMx,ct.coenm)],nrow=nrow(coeMx))
+  ct.pv <- rep("",nrow(ct.coe))
+  ct.pv[ct.pp<0.05] <- "*"
+  ct.pv[ct.pp<0.01] <- "**"
+  ct.con <- summary(ct)$conf.int
+  ct.contt <- paste(numfmt(ct.con[,1],2), " (", numfmt(ct.con[,3],2), ", ", numfmt(ct.con[,4],2), ") ", ct.pv, sep="")
+  ct.hr <- matrix(ct.contt[match(coeMx,ct.coenm)],nrow=nrow(coeMx))
+  ct.beta <- rbind(c("Tr","From","To",coeNm), cbind((1:tranNum),tranFrom,tranTo,ct.beta))
+  ct.hr   <- rbind(c("Tr","From","To",coeNm), cbind((1:tranNum),tranFrom,tranTo,ct.hr))
+  wt <-c(wt,"</br><strong>Semi-parametric model with Transition-specific covariates</strong></br>")
+  wt <-c(wt,"</br>Coefficients : Beta (Se) P-value</br>")
+  wt <-c(wt,"</br><table border=3>", mat2htmltable(ct.beta,0), "</table>Tr: Transition</br>")
+  wt <-c(wt,"</br>Hazard ration:  HR (95%CI)  [*: p<0.05, **:P<0.01]</br>")
+  wt <-c(wt,"</br><table border=3>", mat2htmltable(ct.hr,0), "</table>Tr: Transition</br>")
+  rm(tranFreq, c0, ct, msf0, pt0, pred.forward, ct.hr, ct.beta)
+}  
+sink()
+w<-c("<!DOCTYPE html><html lang='zh'><head><meta charset='utf-8'></head><body>")
+if (cmprsk==1) {
+  w<-c(w,"<h2>Competing Risks Models (using mstate package)</h2>");
+} else {
+  w<-c(w,"<h2>Multi-State Models (using mstate package)</h2>");
+}
+w<-c(w,"</br><table border=3>",mat2htmltable(sttab),"</table>")
+if (!is.na(weights.var)) w<-c(w,paste("</br>Weights: ", weights.var))
+w<-c(w,"</br>",wt)
+w<-c(w,wd.subset)
+w<-c(w,paste("</br></br>Created by EmpowerStats (www.empowerstats.com) and R on",Sys.Date()))
+w<-c(w,"</body></html>")
+fileConn<-file(paste(ofname,".htm",sep="")); writeLines(w, fileConn)

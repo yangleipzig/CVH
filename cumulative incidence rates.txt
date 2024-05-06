@@ -1,0 +1,24 @@
+library(survival)
+library(cmprsk)
+library(survminer)
+attach(mydata)
+
+dt<- mydata[mydata$Sex == 1, ]
+crrmod<-cuminc((dt$Esophageal_time)/365,dt$Esophageal,dt$CVH)
+
+
+d<-ggcompetingrisks(fit = crrmod, multiple_panels = F, ylab = "Cumulative Incidence", xlab = "Follow-up duration (Year)", title="Esophageal cancer",ylim=c(0,0.005))+plot(crrmod,ylim=c(0,0.005),lwd=1)+ scale_y_continuous(labels = scales::percent)
+
+
+dt<- mydata[mydata$Sex == 1, ]
+crrmod<-cuminc((dt$EAC_time)/365,dt$EAC,dt$Sex)
+
+plot(crrmod $"0 1"$time, crrmod $"0 1"$est,type="s",lty=1,lwd=1.5,ylim=c(0,0.005),col = c('blue'), main="EAC", xlab='Follow-up duration (Year)',ylab='Cumulative Incidence') 
+
+
+lines(crrmod $"1 1"$time, crrmod $"1 1"$est,type="s",lty=1,lwd=1.5,col = c('red'), xlab='Follow-up duration (Year)',xaxt="n",ylab=' Cumulative Incidence')
+
+legend("topleft", legend=c("Low","Moderate", "High"), col=c("red","blue", "green"),lty=1,lwd=2)      
+     
+crrmod
+                                  

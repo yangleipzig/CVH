@@ -1,0 +1,11 @@
+#install.packages("ggpubr")
+
+library(ggpubr)              
+inputFile="input.txt"          
+outFile="ggballoonplot.pdf"    
+setwd("C:\\Users\\Desktop\\bioR\\ggballoonplot")     
+data=read.table(inputFile,header=T,sep="\t",check.names=F,row.names=1)     
+pdf(file=outFile,width=8,height=7)
+ggballoonplot(data, fill = 'value')+gradient_fill(c('blue', 'white', 'red'))
+dev.off()
+
